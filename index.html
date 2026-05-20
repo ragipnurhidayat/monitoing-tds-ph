@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Monitoring Kualitas Air IoT - pH & TDS</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #f0f2f5;
+      min-height: 100vh;
+      padding: 24px 16px;
+      color: #1a1a1a;
+    }
+    .container { max-width: 900px; margin: 0 auto; }
+
+    /* Header */
+    .header { margin-bottom: 24px; }
+    .header h1 { font-size: 20px; font-weight: 600; color: #1a1a1a; display: flex; align-items: center; gap: 8px; }
+    .header h1 i { font-size: 22px; color: #378ADD; }
+    .header p { font-size: 13px; color: #666; margin-top: 4px; }
+
+    /* Metric cards */
+    .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 16px; }
+    .metric {
+      background: #fff;
+      border-radius: 12px;
+      padding: 16px 18px;
+      border: 0.5px solid rgba(0,0,0,0.1);
+    }
+    .metric-label { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; display: flex; align-items: center; gap: 5px; }
+    .metric-label i { font-size: 14px; }
+    .metric-value { font-size: 30px; font-weight: 600; line-height: 1.1; }
+    .metric-sub { font-size: 11px; color: #aaa; margin-top: 4px; }
+    .ph-color { color: #378ADD; }
+    .tds-color { color: #BA7517; }
+
+    /* Status bar */
+    .status-bar {
+      border-radius: 12px;
+      padding: 14px 18px;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 14px;
+      font-weight: 600;
+      border: 0.5px solid;
+    }
+    .status-bar i { font-size: 20px; flex-shrink: 0; }
+    .status-detail { font-size: 12px; font-weight: 400; opacity: 0.8; margin-top: 2px; }
+    .status-ok { background: #f0faf4; border-color: #a3d9b5; color: #1a6e3c; }
+    .status-warn { background: #fff5f5; border-color: #f5b0b0; color: #9b1c1c; }
+
+    /* Gauge bars */
+    .param-bars { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+    .param-bar-card {
+      background: #fff;
+      border: 0.5px solid rgba(0,0,0,0.1);
+      border-radius: 12px;
+      padding: 14px 16px;
+    }
+    .param-bar-label { font-size: 12px; color: #888; margin-bottom: 8px; display: flex; justify-content: space-between; }
+    .track { height: 8px; background: #f0f0f0; border-radius: 4px; overflow: hidden; }
+    .fill { height: 100%; border-radius: 4px; transition: width 0.6s ease; }
+    .range-labels { display: flex; justify-content: space-between; font-size: 10px; color: #bbb; margin-top: 5px; }
+
+    /* Chart */
+    .chart-wrap {
+      background: #fff;
+      border: 0.5px solid rgba(0,0,0,0.1);
+      border-radius: 12px;
+      padding: 18px;
+      margin-bottom: 16px;
+    }
+    .chart-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; flex-wrap: wrap; gap: 8px; }
+    .chart-title { font-size: 14px; font-weight: 600; color: #1a1a1a; display: flex; align-items: center; gap: 6px; }
+    .chart-title i { font-size: 16px; color: #888; }
+    .chart-right { display: flex; align-items: center; gap: 12px; }
+    .legend { display: flex; gap: 14px; }
+    .legend-item { display: flex; align-items: center; gap: 5px; font-size: 12px; color: #666; }
+    .legend-dot { width: 10px; height: 10px; border-radius: 50%; }
+    .badge-live {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-size: 11px; background: #f0faf4; color: #1a6e3c;
+      border: 0.5px solid #a3d9b5; border-radius: 6px; padding: 3px 8px;
+    }
+    .dot-live { width: 6px; height: 6px; border-radius: 50%; background: currentColor; animation: blink 1.5s ease-in-out infinite; }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.25} }
+    canvas { max-height: 280px; width: 100%; }
+
+    /* Footer */
+    .footer-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+    .update-time { font-size: 12px; color: #999; display: flex; align-items: center; gap: 5px; }
+    .update-time i { font-size: 13px; }
+    .std-note { font-size: 11px; color: #aaa; }
+
+    @media (max-width: 480px) {
+      .param-bars { grid-template-columns: 1fr; }
+      .footer-row { flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+
+  <div class="header">
+    <h1><i class="ti ti-droplet"></i> Monitoring Kualitas Air IoT</h1>
+    <p>Pemantauan pH &amp; TDS (Total Dissolved Solids) secara real-time</p>
+  </div>
+
+  <div class="metrics">
+    <div class="metric">
+      <div class="metric-label"><i class="ti ti-activity ph-color"></i> Nilai pH</div>
+      <div class="metric-value ph-color" id="ph-val">–</div>
+      <div class="metric-sub">Skala 0–14 &nbsp;|&nbsp; Netral: 7</div>
+    </div>
+    <div class="metric">
+      <div class="metric-label"><i class="ti ti-filter tds-color"></i> TDS</div>
+      <div class="metric-value tds-color" id="tds-val">–</div>
+      <div class="metric-sub">Parts per million (ppm)</div>
+    </div>
+    <div class="metric">
+      <div class="metric-label"><i class="ti ti-database"></i> Titik data</div>
+      <div class="metric-value" id="data-count" style="font-size:24px;">–</div>
+      <div class="metric-sub">Rekaman tersedia</div>
+    </div>
+  </div>
+
+  <div class="status-bar status-ok" id="status-bar">
+    <i class="ti ti-circle-check" id="status-icon"></i>
+    <div>
+      <div id="status-text">Menunggu data sensor…</div>
+      <div class="status-detail" id="status-detail"></div>
+    </div>
+  </div>
+
+  <div class="param-bars">
+    <div class="param-bar-card">
+      <div class="param-bar-label">
+        <span>pH gauge</span>
+        <span id="ph-pct" style="color:#378ADD; font-weight:600;">–</span>
+      </div>
+      <div class="track"><div class="fill" id="ph-fill" style="width:0%; background:#378ADD;"></div></div>
+      <div class="range-labels"><span>0</span><span>Optimal 6.5–8.5</span><span>14</span></div>
+    </div>
+    <div class="param-bar-card">
+      <div class="param-bar-label">
+        <span>TDS gauge</span>
+        <span id="tds-pct" style="color:#BA7517; font-weight:600;">–</span>
+      </div>
+      <div class="track"><div class="fill" id="tds-fill" style="width:0%; background:#BA7517;"></div></div>
+      <div class="range-labels"><span>0</span><span>Batas 500 ppm</span><span>1000</span></div>
+    </div>
+  </div>
+
+  <div class="chart-wrap">
+    <div class="chart-header">
+      <div class="chart-title"><i class="ti ti-chart-line"></i> Riwayat 1 jam terakhir</div>
+      <div class="chart-right">
+        <div class="legend">
+          <div class="legend-item"><div class="legend-dot" style="background:#378ADD;"></div> pH</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#BA7517;"></div> TDS</div>
+        </div>
+        <div class="badge-live"><span class="dot-live"></span> Live</div>
+      </div>
+    </div>
+    <canvas id="chart"></canvas>
+  </div>
+
+  <div class="footer-row">
+    <div class="update-time"><i class="ti ti-clock"></i> <span id="last-update">Belum ada data</span></div>
+    <div class="std-note">Standar: pH 6.5–8.5 &amp; TDS ≤ 500 ppm (WHO &amp; Kemenkes RI)</div>
+  </div>
+
+</div>
+
+<script>
+  // ============================================================
+  // KONFIGURASI
+  // ============================================================
+  // Ganti ke false jika sudah terhubung ke server & api.php
+  const DEMO_MODE = false;
+  // ============================================================
+// ================= MQTT WEBSOCKET =================
+const client = mqtt.connect('ws://broker.emqx.io:8083/mqtt');
+
+client.on('connect', () => {
+  console.log('Terhubung ke MQTT Broker');
+  document.getElementById('status-text').textContent = 'Terhubung ke MQTT, menunggu data...';
+  client.subscribe('kandang/air');
+});
+
+client.on('message', (topic, message) => {
+  try {
+    const data = JSON.parse(message.toString());
+
+    const payload = {
+      ph: parseFloat(data.ph),
+      tds: parseFloat(data.tds),
+      created_at: new Date().toISOString()
+    };
+
+    // Simpan ke buffer 60 data ( 1 menit)
+    if (!window.mqttData) window.mqttData = [];
+    window.mqttData.push(payload);
+    if (window.mqttData.length > 60) window.mqttData.shift();
+
+    processData(window.mqttData);
+
+  } catch (e) {
+    console.error('Data MQTT error:', e);
+  }
+});
+  let chart;
+  let demoData = genDemoData(59);
+
+  function genDemoData(n) {
+    const pts = [];
+    const now = Date.now();
+    let ph = 7.1, tds = 280;
+    for (let i = n; i >= 0; i--) {
+      ph = Math.min(9, Math.max(5.5, ph + (Math.random() - 0.48) * 0.15));
+      tds = Math.min(900, Math.max(80, tds + (Math.random() - 0.48) * 18));
+      pts.push({
+        ph: +ph.toFixed(2),
+        tds: Math.round(tds),
+        created_at: new Date(now - i * 60000).toISOString()
+      });
+    }
+    return pts;
+  }
+
+  function cekKelayakan(ph, tds) {
+    const phOk = ph >= 6.5 && ph <= 8.5;
+    const tdsOk = tds <= 500;
+    if (phOk && tdsOk) {
+      return { ok: true, text: "Air layak konsumsi", detail: "Memenuhi standar WHO & Kemenkes RI" };
+    }
+    const reasons = [];
+    if (!phOk) reasons.push(ph < 6.5 ? "pH terlalu asam" : "pH terlalu basa");
+    if (!tdsOk) reasons.push("TDS melebihi 500 ppm");
+    return { ok: false, text: "Air tidak layak konsumsi", detail: reasons.join(" · ") };
+  }
+
+  function fmt(iso) {
+    return new Date(iso).toLocaleString('id-ID', {
+      day: '2-digit', month: '2-digit', year: 'numeric',
+      hour: '2-digit', minute: '2-digit', second: '2-digit'
+    });
+  }
+
+  function fmtTime(iso) {
+    return new Date(iso).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+  }
+
+  function renderChart(labels, phArr, tdsArr) {
+    const ctx = document.getElementById('chart').getContext('2d');
+    if (chart) chart.destroy();
+    chart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [
+          {
+            label: 'pH',
+            data: phArr,
+            borderColor: '#378ADD',
+            backgroundColor: 'rgba(55,138,221,0.08)',
+            borderWidth: 2,
+            tension: 0.35,
+            fill: true,
+            pointRadius: 2,
+            pointHoverRadius: 5,
+            pointBackgroundColor: '#378ADD',
+            yAxisID: 'y'
+          },
+          {
+            label: 'TDS (ppm)',
+            data: tdsArr,
+            borderColor: '#BA7517',
+            backgroundColor: 'rgba(186,117,23,0.08)',
+            borderWidth: 2,
+            tension: 0.35,
+            fill: true,
+            pointRadius: 2,
+            pointHoverRadius: 5,
+            pointBackgroundColor: '#BA7517',
+            yAxisID: 'y1'
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: ctx => ctx.dataset.label === 'pH'
+                ? `pH: ${ctx.parsed.y.toFixed(2)}`
+                : `TDS: ${Math.round(ctx.parsed.y)} ppm`
+            }
+          }
+        },
+        scales: {
+          y: {
+            min: 0, max: 14,
+            title: { display: true, text: 'pH', color: '#378ADD', font: { size: 11 } },
+            grid: { color: 'rgba(0,0,0,0.05)' },
+            ticks: { color: '#999', font: { size: 11 } }
+          },
+          y1: {
+            position: 'right',
+            min: 0, max: 1000,
+            title: { display: true, text: 'TDS (ppm)', color: '#BA7517', font: { size: 11 } },
+            grid: { drawOnChartArea: false },
+            ticks: { color: '#999', font: { size: 11 } }
+          },
+          x: {
+            ticks: { color: '#999', font: { size: 10 }, maxRotation: 40, minRotation: 40, maxTicksLimit: 10 },
+            grid: { color: 'rgba(0,0,0,0.05)' }
+          }
+        }
+      }
+    });
+  }
+
+  function processData(data) {
+    const labels = data.map(d => fmtTime(d.created_at));
+    const phArr  = data.map(d => +parseFloat(d.ph).toFixed(2));
+    const tdsArr = data.map(d => Math.round(parseFloat(d.tds)));
+    const lastPh  = phArr[phArr.length - 1];
+    const lastTds = tdsArr[tdsArr.length - 1];
+    const lastTime = data[data.length - 1].created_at;
+
+    document.getElementById('ph-val').textContent    = lastPh.toFixed(2);
+    document.getElementById('tds-val').textContent   = lastTds;
+    document.getElementById('data-count').textContent = data.length;
+    document.getElementById('last-update').textContent = 'Diperbarui: ' + fmt(lastTime);
+
+    const phPct  = Math.round((lastPh / 14) * 100);
+    const tdsPct = Math.min(100, Math.round((lastTds / 1000) * 100));
+    document.getElementById('ph-fill').style.width  = phPct + '%';
+    document.getElementById('tds-fill').style.width = tdsPct + '%';
+    document.getElementById('ph-pct').textContent   = lastPh.toFixed(2);
+    document.getElementById('tds-pct').textContent  = lastTds + ' ppm';
+
+    const s = cekKelayakan(lastPh, lastTds);
+    const bar  = document.getElementById('status-bar');
+    const icon = document.getElementById('status-icon');
+    bar.className = 'status-bar ' + (s.ok ? 'status-ok' : 'status-warn');
+    icon.className = s.ok ? 'ti ti-circle-check' : 'ti ti-alert-triangle';
+    document.getElementById('status-text').textContent   = s.text;
+    document.getElementById('status-detail').textContent = s.detail;
+
+    renderChart(labels, phArr, tdsArr);
+  }
+
+  async function loadData() {
+    if (DEMO_MODE) {
+      const last = demoData[demoData.length - 1];
+      const ph  = Math.min(9,   Math.max(5.5, last.ph  + (Math.random() - 0.48) * 0.18));
+      const tds = Math.min(900, Math.max(80,  last.tds + (Math.random() - 0.48) * 22));
+      demoData.push({ ph: +ph.toFixed(2), tds: Math.round(tds), created_at: new Date().toISOString() });
+      if (demoData.length > 60) demoData.shift();
+      processData(demoData);
+      return;
+    }
+
+    try {
+      const res = await fetch('api.php');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      if (!data || !data.length) {
+        document.getElementById('status-text').textContent  = 'Belum ada data dari sensor';
+        document.getElementById('status-detail').textContent = 'Pastikan ESP32 sudah mengirim data';
+        return;
+      }
+      processData(data);
+    } catch (e) {
+      document.getElementById('status-bar').className = 'status-bar status-warn';
+      document.getElementById('status-icon').className = 'ti ti-alert-triangle';
+      document.getElementById('status-text').textContent  = 'Gagal memuat data';
+      document.getElementById('status-detail').textContent = e.message;
+    }
+  }
+
+  loadData();
+  setInterval(loadData, 10000);
+</script>
+</body>
+</html>
